@@ -274,7 +274,7 @@ public class Cpu {
         }
         int stat = addressSpace.getByte(GpuRegister.STAT.getAddress());
         if ((stat & 0b11) == Gpu.Mode.OamSearch.ordinal() && gpu.getTicksInLine() < 79) {
-            SpriteBug.corruptOam(addressSpace, type, gpu.getTicksInLine());
+            SpriteBug.corruptOam(gpu.getOamRam(), type, gpu.getTicksInLine());
         }
     }
 
