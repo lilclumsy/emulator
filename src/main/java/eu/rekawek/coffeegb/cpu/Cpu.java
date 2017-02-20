@@ -76,20 +76,24 @@ public class Cpu {
         int intFlag = interruptManager.getMaskedInterruptFlag();
         boolean intRequested = (intFlag & (previousIntFlag ^ intFlag)) != 0;
 
+        previousIntFlag = interruptManager.getMaskedInterruptFlag();
+
         if (state == State.OPCODE && interruptManager.isIme() && intRequested) {
             state = State.IRQ_READ_IF;
         }
 
         if (state == State.HALTED && intRequested) {
-            state = State.IRQ_READ_IF;
+            if (interruptManager.isIme() || interruptManager.isPendingIme()) {
+                state = State.IRQ_READ_IF;
+            } else {
+                state = State.OPCODE;
+            }
         }
 
         if (state == State.STOPPED && interruptManager.isIme() && intRequested) {
             display.enableLcd();
             state = State.IRQ_READ_IF;
         }
-
-        previousIntFlag = interruptManager.getMaskedInterruptFlag();
 
         if (state == State.IRQ_READ_IF || state == State.IRQ_READ_IE || state == State.IRQ_PUSH_1 || state == State.IRQ_PUSH_2 || state == State.IRQ_JUMP) {
             handleInterrupt();
@@ -242,6 +246,7 @@ public class Cpu {
                     interruptManager.clearInterrupt(InterruptManager.InterruptType.Timer);
                     interruptManager.clearInterrupt(InterruptManager.InterruptType.Serial);
                     interruptManager.clearInterrupt(InterruptManager.InterruptType.P10_13);
+                    interruptManager.clearInterrupt(InterruptManager.InterruptType.VBlank);
                     state = State.IRQ_PUSH_1;
                     interruptManager.disableInterrupts(false);
                 }
