@@ -152,10 +152,7 @@ public class Gpu implements AddressSpace {
     }
 
     public Mode tick() {
-        if (!interruptManager.isInterruptSet(InterruptType.LCDC) && (modeIrqRequested || lineIrqRequested)) {
-            modeIrqRequested = false;
-            lineIrqRequested = false;
-        }
+        updateIrqState();
         if (!lcdEnabled) {
             if (lcdEnabledDelay != -1) {
                 if (--lcdEnabledDelay == 0) {
@@ -247,7 +244,6 @@ public class Gpu implements AddressSpace {
         } else if (!i && modeIrqRequested) {
             modeIrqRequested = false;
         }
-        updateIrqState();
     }
 
     private void onLineChanged() {
@@ -257,7 +253,6 @@ public class Gpu implements AddressSpace {
         } else if (!coincidence && lineIrqRequested) {
             lineIrqRequested = false;
         }
-        updateIrqState();
     }
 
     private void updateIrqState() {
@@ -273,8 +268,8 @@ public class Gpu implements AddressSpace {
     }
 
     private void setStat(int value) {
-        r.put(STAT, value & 0b11111000); // last three bits are read-only
         int oldState = r.get(STAT);
+        r.put(STAT, value & 0b11111000); // last three bits are read-only
         if (((oldState ^ value) & (1 << 3)) != 0 && mode == Mode.HBlank) {
             onModeChanged();
         }

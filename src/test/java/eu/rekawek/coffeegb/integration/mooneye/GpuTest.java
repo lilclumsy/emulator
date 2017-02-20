@@ -35,7 +35,7 @@ public class GpuTest {
         this.romPath = romPath;
     }
 
-    @Test(timeout = 5000)
+    @Test
     public void test() throws IOException {
         RomTestUtils.testMooneyeRom(romPath);
     }

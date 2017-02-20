@@ -60,8 +60,8 @@ public class InterruptManager implements AddressSpace {
         interruptFlag = interruptFlag & (~(1 << type.ordinal()));
     }
 
-    public boolean isInterruptSet(InterruptType type) {
-        return (interruptFlag & (1 << type.ordinal())) != 0;
+    public int getMaskedInterruptFlag() {
+        return interruptFlag & interruptEnabled;
     }
 
     public void onInstructionFinished() {
@@ -81,14 +81,9 @@ public class InterruptManager implements AddressSpace {
         return ime;
     }
 
-    public boolean isInterruptRequested() {
-        return (interruptFlag & interruptEnabled) != 0;
-    }
-
     public void flush() {
         interruptFlag = 0xe0;
     }
-
     public boolean isHaltBug() {
         return (interruptFlag & interruptEnabled & 0x1f) != 0 && !ime;
     }

@@ -64,6 +64,8 @@ public class Cpu {
         this.speedMode = speedMode;
     }
 
+    private int previousIntFlag;
+
     public void tick() {
         if (++clockCycle >= (4 / speedMode.getSpeedMode())) {
             clockCycle = 0;
@@ -71,22 +73,27 @@ public class Cpu {
             return;
         }
 
-        if (state == State.OPCODE || state == State.HALTED || state == State.STOPPED) {
-            if (interruptManager.isIme() && interruptManager.isInterruptRequested()) {
-                if (state == State.STOPPED) {
-                    display.enableLcd();
-                }
-                state = State.IRQ_READ_IF;
-            }
+        int intFlag = interruptManager.getMaskedInterruptFlag();
+        boolean intRequested = (intFlag & (previousIntFlag ^ intFlag)) != 0;
+
+        if (state == State.OPCODE && interruptManager.isIme() && intRequested) {
+            state = State.IRQ_READ_IF;
         }
+
+        if (state == State.HALTED && intRequested) {
+            state = State.IRQ_READ_IF;
+        }
+
+        if (state == State.STOPPED && interruptManager.isIme() && intRequested) {
+            display.enableLcd();
+            state = State.IRQ_READ_IF;
+        }
+
+        previousIntFlag = interruptManager.getMaskedInterruptFlag();
 
         if (state == State.IRQ_READ_IF || state == State.IRQ_READ_IE || state == State.IRQ_PUSH_1 || state == State.IRQ_PUSH_2 || state == State.IRQ_JUMP) {
             handleInterrupt();
             return;
-        }
-
-        if (state == State.HALTED && interruptManager.isInterruptRequested()) {
-            state = State.OPCODE;
         }
 
         if (state == State.HALTED || state == State.STOPPED) {
@@ -229,10 +236,10 @@ public class Cpu {
                         break;
                     }
                 }
-                interruptManager.flush();
                 if (requestedIrq == null) {
                     state = State.OPCODE;
                 } else {
+                    interruptManager.flush();
                     state = State.IRQ_PUSH_1;
                     interruptManager.disableInterrupts(false);
                 }
