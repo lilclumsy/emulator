@@ -60,6 +60,10 @@ public class InterruptManager implements AddressSpace {
         interruptFlag = interruptFlag & (~(1 << type.ordinal()));
     }
 
+    public boolean isSetInterrupt(InterruptType type) {
+        return (interruptFlag & (1 << type.ordinal())) != 0;
+    }
+
     public int getMaskedInterruptFlag() {
         return interruptFlag & interruptEnabled;
     }

@@ -3,7 +3,6 @@ package eu.rekawek.coffeegb.gpu;
 import eu.rekawek.coffeegb.AddressSpace;
 import eu.rekawek.coffeegb.cpu.InterruptManager;
 import eu.rekawek.coffeegb.cpu.InterruptManager.InterruptType;
-import eu.rekawek.coffeegb.cpu.SpeedMode;
 import eu.rekawek.coffeegb.gpu.phase.GpuPhase;
 import eu.rekawek.coffeegb.gpu.phase.HBlankPhase;
 import eu.rekawek.coffeegb.gpu.phase.OamSearch;
@@ -152,7 +151,10 @@ public class Gpu implements AddressSpace {
     }
 
     public Mode tick() {
-        updateIrqState();
+        if (irqUpdateRequested) {
+            updateIrqState();
+            irqUpdateRequested = false;
+        }
         if (!lcdEnabled) {
             if (lcdEnabledDelay != -1) {
                 if (--lcdEnabledDelay == 0) {
@@ -204,6 +206,7 @@ public class Gpu implements AddressSpace {
                         mode = Mode.OamSearch;
                         r.put(LY, 0);
                         phase = oamSearchPhase.start();
+                        updateIrqState();
                         interruptManager.clearInterrupt(InterruptType.VBlank);
                     } else {
                         phase = vBlankPhase.start();
@@ -224,6 +227,8 @@ public class Gpu implements AddressSpace {
         return ticksInLine;
     }
 
+    private boolean irqUpdateRequested;
+
     private void onModeChanged() {
         int stat = r.get(STAT);
         boolean i = false;
@@ -241,8 +246,10 @@ public class Gpu implements AddressSpace {
         }
         if (i && !modeIrqRequested) {
             modeIrqRequested = true;
+            irqUpdateRequested = true;
         } else if (!i && modeIrqRequested) {
             modeIrqRequested = false;
+            irqUpdateRequested = true;
         }
     }
 
@@ -250,8 +257,10 @@ public class Gpu implements AddressSpace {
         boolean coincidence = (r.get(STAT) & (1 << 6)) != 0 && r.get(LYC) == r.get(LY);
         if (coincidence && !lineIrqRequested) {
             lineIrqRequested = true;
+            irqUpdateRequested = true;
         } else if (!coincidence && lineIrqRequested) {
             lineIrqRequested = false;
+            irqUpdateRequested = true;
         }
     }
 

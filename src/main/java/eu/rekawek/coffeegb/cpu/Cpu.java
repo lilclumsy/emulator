@@ -239,7 +239,9 @@ public class Cpu {
                 if (requestedIrq == null) {
                     state = State.OPCODE;
                 } else {
-                    interruptManager.flush();
+                    interruptManager.clearInterrupt(InterruptManager.InterruptType.Timer);
+                    interruptManager.clearInterrupt(InterruptManager.InterruptType.Serial);
+                    interruptManager.clearInterrupt(InterruptManager.InterruptType.P10_13);
                     state = State.IRQ_PUSH_1;
                     interruptManager.disableInterrupts(false);
                 }
