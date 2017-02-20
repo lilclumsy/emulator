@@ -56,6 +56,14 @@ public class InterruptManager implements AddressSpace {
         interruptFlag = interruptFlag | (1 << type.ordinal());
     }
 
+    public void clearInterrupt(InterruptType type) {
+        interruptFlag = interruptFlag & (~(1 << type.ordinal()));
+    }
+
+    public boolean isInterruptSet(InterruptType type) {
+        return (interruptFlag & (1 << type.ordinal())) != 0;
+    }
+
     public void onInstructionFinished() {
         if (pendingEnableInterrupts != -1) {
             if (pendingEnableInterrupts-- == 0) {

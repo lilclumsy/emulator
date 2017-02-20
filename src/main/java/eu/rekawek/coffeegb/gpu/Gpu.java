@@ -61,6 +61,10 @@ public class Gpu implements AddressSpace {
 
     private GpuPhase phase;
 
+    private boolean modeIrqRequested;
+
+    private boolean lineIrqRequested;
+
     public Gpu(Display display, InterruptManager interruptManager, Dma dma, Ram oamRam, boolean gbc) {
         this.r = new MemoryRegisters(GpuRegister.values());
         this.lcdc = new Lcdc();
@@ -148,6 +152,10 @@ public class Gpu implements AddressSpace {
     }
 
     public Mode tick() {
+        if (!interruptManager.isInterruptSet(InterruptType.LCDC) && (modeIrqRequested || lineIrqRequested)) {
+            modeIrqRequested = false;
+            lineIrqRequested = false;
+        }
         if (!lcdEnabled) {
             if (lcdEnabledDelay != -1) {
                 if (--lcdEnabledDelay == 0) {
@@ -166,7 +174,7 @@ public class Gpu implements AddressSpace {
             // switch line 153 to 0
             if (ticksInLine == 4 && mode == Mode.VBlank && r.get(LY) == 153) {
                 r.put(LY, 0);
-                requestLycEqualsLyInterrupt();
+                onLineChanged();
             }
         } else {
             switch (oldMode) {
@@ -178,7 +186,6 @@ public class Gpu implements AddressSpace {
                 case PixelTransfer:
                     mode = Mode.HBlank;
                     phase = hBlankPhase.start(ticksInLine);
-                    requestLcdcInterrupt(3);
                     break;
 
                 case HBlank:
@@ -187,13 +194,11 @@ public class Gpu implements AddressSpace {
                         mode = Mode.VBlank;
                         phase = vBlankPhase.start();
                         interruptManager.requestInterrupt(InterruptType.VBlank);
-                        requestLcdcInterrupt(4);
                     } else {
                         mode = Mode.OamSearch;
                         phase = oamSearchPhase.start();
                     }
-                    requestLcdcInterrupt(5);
-                    requestLycEqualsLyInterrupt();
+                    onLineChanged();
                     break;
 
                 case VBlank:
@@ -202,17 +207,18 @@ public class Gpu implements AddressSpace {
                         mode = Mode.OamSearch;
                         r.put(LY, 0);
                         phase = oamSearchPhase.start();
-                        requestLcdcInterrupt(5);
+                        interruptManager.clearInterrupt(InterruptType.VBlank);
                     } else {
                         phase = vBlankPhase.start();
                     }
-                    requestLycEqualsLyInterrupt();
+                    onLineChanged();
                     break;
             }
         }
         if (oldMode == mode) {
             return null;
         } else {
+            onModeChanged();
             return mode;
         }
     }
@@ -221,15 +227,44 @@ public class Gpu implements AddressSpace {
         return ticksInLine;
     }
 
-    private void requestLcdcInterrupt(int statBit) {
-        if ((r.get(STAT) & (1 << statBit)) != 0) {
-            interruptManager.requestInterrupt(InterruptType.LCDC);
+    private void onModeChanged() {
+        int stat = r.get(STAT);
+        boolean i = false;
+        if ((stat & (1 << 3)) != 0) {
+            i = i || mode == Mode.HBlank;
         }
+        if ((stat & (1 << 4)) != 0) {
+            i = i || mode == Mode.VBlank;
+        }
+        if ((stat & (1 << 5)) != 0) {
+            i = i || mode == Mode.OamSearch;
+        }
+        if ((stat & (1 << 5)) != 0) {
+            i = i || (mode == Mode.VBlank && r.get(LY) == 144);
+        }
+        if (i && !modeIrqRequested) {
+            modeIrqRequested = true;
+        } else if (!i && modeIrqRequested) {
+            modeIrqRequested = false;
+        }
+        updateIrqState();
     }
 
-    private void requestLycEqualsLyInterrupt() {
-        if (r.get(LYC) == r.get(LY)) {
-            requestLcdcInterrupt(6);
+    private void onLineChanged() {
+        boolean coincidence = (r.get(STAT) & (1 << 6)) != 0 && r.get(LYC) == r.get(LY);
+        if (coincidence && !lineIrqRequested) {
+            lineIrqRequested = true;
+        } else if (!coincidence && lineIrqRequested) {
+            lineIrqRequested = false;
+        }
+        updateIrqState();
+    }
+
+    private void updateIrqState() {
+        if (modeIrqRequested || lineIrqRequested) {
+            interruptManager.requestInterrupt(InterruptType.LCDC);
+        } else {
+            interruptManager.clearInterrupt(InterruptType.LCDC);
         }
     }
 
@@ -239,6 +274,19 @@ public class Gpu implements AddressSpace {
 
     private void setStat(int value) {
         r.put(STAT, value & 0b11111000); // last three bits are read-only
+        int oldState = r.get(STAT);
+        if (((oldState ^ value) & (1 << 3)) != 0 && mode == Mode.HBlank) {
+            onModeChanged();
+        }
+        if (((oldState ^ value) & (1 << 4)) != 0 && mode == Mode.VBlank) {
+            onModeChanged();
+        }
+        if (((oldState ^ value) & (1 << 5)) != 0 && mode == Mode.OamSearch) {
+            onModeChanged();
+        }
+        if (((oldState ^ value) & (1 << 6)) != 0 && r.get(LYC) == r.get(LY)) {
+            onLineChanged();
+        }
     }
 
     private void setLcdc(int value) {
