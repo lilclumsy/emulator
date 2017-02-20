@@ -207,7 +207,6 @@ public class Gpu implements AddressSpace {
                         r.put(LY, 0);
                         phase = oamSearchPhase.start();
                         updateIrqState();
-                        interruptManager.clearInterrupt(InterruptType.VBlank);
                     } else {
                         phase = vBlankPhase.start();
                     }
