@@ -30,6 +30,8 @@ public class MooneyeTestRunner {
 
     private final OutputStream os;
 
+    private boolean bootstrapFinished;
+
     public MooneyeTestRunner(File romFile, OutputStream os) throws IOException {
         List<String> opts = new ArrayList<>();
         if (romFile.toString().endsWith("-C.gb") || romFile.toString().endsWith("-cgb.gb")) {
@@ -52,8 +54,16 @@ public class MooneyeTestRunner {
 
     public boolean runTest() throws IOException {
         int divider = 0;
-        while(!isByteSequenceAtPc(0x00, 0x18, 0xfd)) { // infinite loop
+        bootstrapFinished = false;
+        while(true) { // infinite loop
             gb.tick();
+            bootstrapFinished = bootstrapFinished || regs.getPC() > 0x100;
+            if (!bootstrapFinished) {
+                continue;
+            }
+            if (isByteSequenceAtPc(0x00, 0x18, 0xfd)) {
+                break;
+            }
             if (++divider >= (gb.getSpeedMode().getSpeedMode() == 2 ? 1 : 4)) {
                 displayProgress();
                 divider = 0;
