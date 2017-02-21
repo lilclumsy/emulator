@@ -16,8 +16,7 @@ import java.util.List;
 public class GpuTest {
 
     static final List<String> EXCLUDES = Arrays.asList(
-            "-dmgABCX.gb",
-            "-dmgABCXmgb.gb",
+            "-dmg0.gb",
             "-mgb.gb",
             "-sgb.gb",
             "-sgb2.gb",
