@@ -128,7 +128,7 @@ public final class Opcodes {
         }
 
         for (int i = 0xc7, j = 0x00; i <= 0xf7; i += 0x10, j += 0x10) {
-            regCmd(opcodes, i, String.format("RST %02XH", j)).load("PC").push().forceFinish().loadWord(j).store("PC");
+            regCmd(opcodes, i, String.format("RST %02XH", j)).extraCycle().load("PC").push().loadWord(j).store("PC");
         }
 
         regCmd(opcodes, 0xc9, "RET").pop().forceFinish().store("PC");
@@ -136,7 +136,7 @@ public final class Opcodes {
         regCmd(opcodes, 0xcd, "CALL a16").load("PC").extraCycle().push().load("a16").store("PC");
 
         for (int i = 0xcf, j = 0x08; i <= 0xff; i += 0x10, j += 0x10) {
-            regCmd(opcodes, i, String.format("RST %02XH", j)).load("PC").push().forceFinish().loadWord(j).store("PC");
+            regCmd(opcodes, i, String.format("RST %02XH", j)).extraCycle().load("PC").push().loadWord(j).store("PC");
         }
 
         regCmd(opcodes, 0xd9, "RETI").pop().forceFinish().store("PC").switchInterrupts(true, false);
