@@ -39,6 +39,8 @@ public class InterruptManager implements AddressSpace {
             pendingEnableInterrupts = 1;
             pendingDisableInterrupts = -1;
         } else {
+            pendingEnableInterrupts = -1;
+            pendingDisableInterrupts = -1;
             ime = true;
         }
     }
@@ -48,6 +50,8 @@ public class InterruptManager implements AddressSpace {
             pendingEnableInterrupts = -1;
             pendingDisableInterrupts = 1;
         } else {
+            pendingEnableInterrupts = -1;
+            pendingDisableInterrupts = -1;
             ime = false;
         }
     }
@@ -58,6 +62,10 @@ public class InterruptManager implements AddressSpace {
 
     public void clearInterrupt(InterruptType type) {
         interruptFlag = interruptFlag & (~(1 << type.ordinal()));
+    }
+
+    public int getInterruptFlag() {
+        return interruptFlag;
     }
 
     public int getMaskedInterruptFlag() {
@@ -122,5 +130,10 @@ public class InterruptManager implements AddressSpace {
             default:
                 return 0xff;
         }
+    }
+
+    @Override
+    public String toString() {
+        return String.format("IME=%s, IF=%02x, IE=%02x", Boolean.toString(ime), interruptFlag, interruptEnabled);
     }
 }

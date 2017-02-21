@@ -55,6 +55,10 @@ public class Cpu {
 
     private boolean haltBugMode;
 
+    private int previousIntFlag;
+
+    private boolean lcdcAck;
+
     public Cpu(AddressSpace addressSpace, InterruptManager interruptManager, Gpu gpu, Display display, SpeedMode speedMode) {
         this.registers = new Registers();
         this.addressSpace = addressSpace;
@@ -64,9 +68,11 @@ public class Cpu {
         this.speedMode = speedMode;
     }
 
-    private int previousIntFlag;
-
     public void tick() {
+        if (lcdcAck && (interruptManager.getInterruptFlag() & InterruptManager.InterruptType.LCDC.ordinal()) == 0) {
+            lcdcAck = false;
+        }
+
         if (++clockCycle >= (4 / speedMode.getSpeedMode())) {
             clockCycle = 0;
         } else {
@@ -74,15 +80,19 @@ public class Cpu {
         }
 
         int intFlag = interruptManager.getMaskedInterruptFlag();
-        boolean intRequested = (intFlag & (previousIntFlag ^ intFlag)) != 0;
+        if (lcdcAck) {
+            intFlag &= ~InterruptManager.InterruptType.LCDC.ordinal();
+        }
 
-        previousIntFlag = interruptManager.getMaskedInterruptFlag();
+        int intFlagAndIme = interruptManager.isIme() ? intFlag : 0;
+        boolean intRequested = (intFlagAndIme & (previousIntFlag ^ intFlagAndIme)) != 0;
+        previousIntFlag = intFlagAndIme;
 
-        if (state == State.OPCODE && interruptManager.isIme() && intRequested) {
+        if (state == State.OPCODE && intRequested) {
             state = State.IRQ_READ_IF;
         }
 
-        if (state == State.HALTED && intRequested) {
+        if (state == State.HALTED && intFlag != 0) {
             if (interruptManager.isIme() || interruptManager.isPendingIme()) {
                 state = State.IRQ_READ_IF;
             } else {
@@ -90,7 +100,7 @@ public class Cpu {
             }
         }
 
-        if (state == State.STOPPED && interruptManager.isIme() && intRequested) {
+        if (state == State.STOPPED && intRequested) {
             display.enableLcd();
             state = State.IRQ_READ_IF;
         }
@@ -235,6 +245,9 @@ public class Cpu {
                 interruptEnabled = addressSpace.getByte(0xffff);
                 requestedIrq = null;
                 for (InterruptManager.InterruptType irq : InterruptManager.InterruptType.values()) {
+                    if (irq == InterruptManager.InterruptType.LCDC && lcdcAck) {
+                        continue;
+                    }
                     if ((interruptFlag & interruptEnabled & (1 << irq.ordinal())) != 0) {
                         requestedIrq = irq;
                         break;
@@ -243,10 +256,11 @@ public class Cpu {
                 if (requestedIrq == null) {
                     state = State.OPCODE;
                 } else {
-                    interruptManager.clearInterrupt(InterruptManager.InterruptType.Timer);
-                    interruptManager.clearInterrupt(InterruptManager.InterruptType.Serial);
-                    interruptManager.clearInterrupt(InterruptManager.InterruptType.P10_13);
-                    interruptManager.clearInterrupt(InterruptManager.InterruptType.VBlank);
+                    if (requestedIrq == InterruptManager.InterruptType.LCDC) {
+                        lcdcAck = true;
+                    } else {
+                        interruptManager.clearInterrupt(requestedIrq);
+                    }
                     state = State.IRQ_PUSH_1;
                     interruptManager.disableInterrupts(false);
                 }
