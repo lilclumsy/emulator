@@ -23,6 +23,8 @@ public class Timer implements AddressSpace {
     public Timer(InterruptManager interruptManager, SpeedMode speedMode) {
         this.speedMode = speedMode;
         this.interruptManager = interruptManager;
+        this.div = 0xb700;
+        this.tac = 0xf8;
     }
 
     public void tick() {
