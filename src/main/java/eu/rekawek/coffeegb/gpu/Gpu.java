@@ -151,10 +151,6 @@ public class Gpu implements AddressSpace {
     }
 
     public Mode tick() {
-        if (irqUpdateRequested) {
-            updateIrqState();
-            irqUpdateRequested = false;
-        }
         if (!lcdEnabled) {
             if (lcdEnabledDelay != -1) {
                 if (--lcdEnabledDelay == 0) {
@@ -226,8 +222,6 @@ public class Gpu implements AddressSpace {
         return ticksInLine;
     }
 
-    private boolean irqUpdateRequested;
-
     private void onModeChanged() {
         int stat = r.get(STAT);
         boolean i = false;
@@ -245,10 +239,10 @@ public class Gpu implements AddressSpace {
         }
         if (i && !modeIrqRequested) {
             modeIrqRequested = true;
-            irqUpdateRequested = true;
+            updateIrqState();
         } else if (!i && modeIrqRequested) {
             modeIrqRequested = false;
-            irqUpdateRequested = true;
+            updateIrqState();
         }
     }
 
@@ -256,10 +250,10 @@ public class Gpu implements AddressSpace {
         boolean coincidence = (r.get(STAT) & (1 << 6)) != 0 && r.get(LYC) == r.get(LY);
         if (coincidence && !lineIrqRequested) {
             lineIrqRequested = true;
-            irqUpdateRequested = true;
+            updateIrqState();
         } else if (!coincidence && lineIrqRequested) {
             lineIrqRequested = false;
-            irqUpdateRequested = true;
+            updateIrqState();
         }
     }
 
