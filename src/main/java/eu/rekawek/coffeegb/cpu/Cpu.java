@@ -79,30 +79,33 @@ public class Cpu {
             return;
         }
 
-        int intFlag = interruptManager.getMaskedInterruptFlag();
-        if (lcdcAck) {
-            intFlag &= ~InterruptManager.InterruptType.LCDC.ordinal();
-        }
-
-        int intFlagAndIme = interruptManager.isIme() ? intFlag : 0;
-        boolean intRequested = (intFlagAndIme & (previousIntFlag ^ intFlagAndIme)) != 0;
-        previousIntFlag = intFlagAndIme;
-
-        if (state == State.OPCODE && intRequested) {
-            state = State.IRQ_READ_IF;
-        }
-
-        if (state == State.HALTED && intFlag != 0) {
-            if (interruptManager.isIme() || interruptManager.isPendingIme()) {
-                state = State.IRQ_READ_IF;
-            } else {
-                state = State.OPCODE;
+        if (state == State.OPCODE || state == State.HALTED || state == State.STOPPED) {
+            int intFlag = interruptManager.getMaskedInterruptFlag();
+            if (lcdcAck) {
+                intFlag &= ~InterruptManager.InterruptType.LCDC.ordinal();
             }
-        }
 
-        if (state == State.STOPPED && intRequested) {
-            display.enableLcd();
-            state = State.IRQ_READ_IF;
+            int intFlagAndIme = interruptManager.isIme() ? intFlag : 0;
+            boolean intRequested = (intFlagAndIme & (previousIntFlag ^ intFlagAndIme)) != 0;
+
+            previousIntFlag = intFlagAndIme;
+
+            if (state == State.OPCODE && intRequested) {
+                state = State.IRQ_READ_IF;
+            }
+
+            if (state == State.HALTED && intFlag != 0) {
+                if (interruptManager.isIme() || interruptManager.isPendingIme()) {
+                    state = State.IRQ_READ_IF;
+                } else {
+                    state = State.OPCODE;
+                }
+            }
+
+            if (state == State.STOPPED && intRequested) {
+                display.enableLcd();
+                state = State.IRQ_READ_IF;
+            }
         }
 
         if (state == State.IRQ_READ_IF || state == State.IRQ_READ_IE || state == State.IRQ_PUSH_1 || state == State.IRQ_PUSH_2 || state == State.IRQ_JUMP) {
@@ -292,7 +295,7 @@ public class Cpu {
             return;
         }
         int stat = addressSpace.getByte(GpuRegister.STAT.getAddress());
-        if ((stat & 0b11) == Gpu.Mode.OamSearch.ordinal() && gpu.getTicksInLine() < 79) {
+        if ((stat & 0b11) == 2 && gpu.getTicksInLine() < 79) {
             SpriteBug.corruptOam(gpu.getOamRam(), type, gpu.getTicksInLine());
         }
     }

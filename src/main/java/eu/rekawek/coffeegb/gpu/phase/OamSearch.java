@@ -56,8 +56,6 @@ public class OamSearch implements GpuPhase {
 
     private int i;
 
-    private int warmup;
-
     public OamSearch(AddressSpace oemRam, Lcdc lcdc, MemoryRegisters registers) {
         this.oemRam = oemRam;
         this.registers = registers;
@@ -74,14 +72,13 @@ public class OamSearch implements GpuPhase {
         for (int j = 0; j < sprites.length; j++) {
             sprites[j] = null;
         }
-        warmup = 2;
         return this;
     }
 
     @Override
     public boolean tick() {
-        if (--warmup > 0) {
-            return true;
+        if (i >= 40) {
+            return false;
         }
         int spriteAddress = 0xfe00 + 4 * i;
         switch (state) {

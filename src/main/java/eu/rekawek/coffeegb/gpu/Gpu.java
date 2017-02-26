@@ -2,33 +2,63 @@ package eu.rekawek.coffeegb.gpu;
 
 import eu.rekawek.coffeegb.AddressSpace;
 import eu.rekawek.coffeegb.cpu.InterruptManager;
-import eu.rekawek.coffeegb.cpu.InterruptManager.InterruptType;
 import eu.rekawek.coffeegb.gpu.phase.GpuPhase;
-import eu.rekawek.coffeegb.gpu.phase.HBlankPhase;
 import eu.rekawek.coffeegb.gpu.phase.OamSearch;
 import eu.rekawek.coffeegb.gpu.phase.PixelTransfer;
-import eu.rekawek.coffeegb.gpu.phase.VBlankPhase;
 import eu.rekawek.coffeegb.memory.Dma;
 import eu.rekawek.coffeegb.memory.MemoryRegisters;
 import eu.rekawek.coffeegb.memory.Ram;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static eu.rekawek.coffeegb.gpu.Gpu.State.GB_LCD_STATE_LY00_M0;
+import static eu.rekawek.coffeegb.gpu.Gpu.State.GB_LCD_STATE_LY00_M1;
+import static eu.rekawek.coffeegb.gpu.Gpu.State.GB_LCD_STATE_LY00_M1_1;
+import static eu.rekawek.coffeegb.gpu.Gpu.State.GB_LCD_STATE_LY00_M1_2;
+import static eu.rekawek.coffeegb.gpu.Gpu.State.GB_LCD_STATE_LY00_M2;
+import static eu.rekawek.coffeegb.gpu.Gpu.State.GB_LCD_STATE_LY00_M2_WND;
+import static eu.rekawek.coffeegb.gpu.Gpu.State.GB_LCD_STATE_LY9X_M1;
+import static eu.rekawek.coffeegb.gpu.Gpu.State.GB_LCD_STATE_LY9X_M1_INC;
+import static eu.rekawek.coffeegb.gpu.Gpu.State.GB_LCD_STATE_LYXX_M0;
+import static eu.rekawek.coffeegb.gpu.Gpu.State.GB_LCD_STATE_LYXX_M0_2;
+import static eu.rekawek.coffeegb.gpu.Gpu.State.GB_LCD_STATE_LYXX_M0_INC;
+import static eu.rekawek.coffeegb.gpu.Gpu.State.GB_LCD_STATE_LYXX_M2;
+import static eu.rekawek.coffeegb.gpu.Gpu.State.GB_LCD_STATE_LYXX_M2_WND;
+import static eu.rekawek.coffeegb.gpu.Gpu.State.GB_LCD_STATE_LYXX_M3;
 import static eu.rekawek.coffeegb.gpu.GpuRegister.*;
 
 public class Gpu implements AddressSpace {
 
     private static final Logger LOG = LoggerFactory.getLogger(Gpu.class);
 
-    public enum Mode {
-        HBlank, VBlank, OamSearch, PixelTransfer
+    public static enum State {
+        GB_LCD_STATE_LYXX_M3(3),
+        GB_LCD_STATE_LYXX_M0(0),
+        GB_LCD_STATE_LYXX_M0_2(0),
+        GB_LCD_STATE_LYXX_M0_INC(0),
+        GB_LCD_STATE_LY00_M2(2),
+        GB_LCD_STATE_LY00_M2_WND(2),
+        GB_LCD_STATE_LYXX_M2(2),
+        GB_LCD_STATE_LYXX_M2_WND(2),
+        GB_LCD_STATE_LY9X_M1(1),
+        GB_LCD_STATE_LY9X_M1_INC(1),
+        GB_LCD_STATE_LY00_M1(1),
+        GB_LCD_STATE_LY00_M1_1(1),
+        GB_LCD_STATE_LY00_M1_2(1),
+        GB_LCD_STATE_LY00_M0(0);
+
+        private final int mode;
+
+        State(int mode) {
+            this.mode = mode;
+        }
     }
 
-    private final AddressSpace videoRam0;
+    private final Ram videoRam0;
 
-    private final AddressSpace videoRam1;
+    private final Ram videoRam1;
 
-    private final AddressSpace oamRam;
+    private final Ram oamRam;
 
     private final Display display;
 
@@ -44,31 +74,43 @@ public class Gpu implements AddressSpace {
 
     private final ColorPalette oamPalette;
 
-    private final HBlankPhase hBlankPhase;
-
     private final OamSearch oamSearchPhase;
 
     private final PixelTransfer pixelTransferPhase;
 
-    private final VBlankPhase vBlankPhase;
-
     private boolean lcdEnabled = true;
-
-    private int lcdEnabledDelay;
 
     private MemoryRegisters r;
 
     private int ticksInLine;
 
-    private Mode mode;
+    private int mode;
+
+    private State state;
+
+    private State nextState;
 
     private GpuPhase phase;
 
-    private boolean modeIrqRequested;
+    private boolean phaseInProgress;
 
-    private boolean lineIrqRequested;
+    private int stateTicks;
 
-    private int lastModeTicks;
+    private int mode3Ticks;
+
+    private boolean vramLocked;
+
+    private boolean oamRamLocked;
+
+    private boolean firstRefresh;
+
+    private int wy;
+
+    private boolean lyLycIncident;
+
+    private boolean lyLycInterrupt;
+
+    private boolean[] modeInterrupt = new boolean[4];
 
     public Gpu(Display display, InterruptManager interruptManager, Dma dma, Ram oamRam, boolean gbc) {
         this.r = new MemoryRegisters(GpuRegister.values());
@@ -83,6 +125,7 @@ public class Gpu implements AddressSpace {
         }
         this.oamRam = oamRam;
         this.dma = dma;
+        this.display = display;
 
         this.bgPalette = new ColorPalette(0xff68);
         this.oamPalette = new ColorPalette(0xff6a);
@@ -90,23 +133,21 @@ public class Gpu implements AddressSpace {
 
         this.oamSearchPhase = new OamSearch(oamRam, lcdc, r);
         this.pixelTransferPhase = new PixelTransfer(videoRam0, videoRam1, oamRam, display, lcdc, r, gbc, bgPalette, oamPalette);
-        this.hBlankPhase = new HBlankPhase();
-        this.vBlankPhase = new VBlankPhase();
 
-        this.mode = Mode.OamSearch;
-        this.phase = oamSearchPhase.start();
-
-        this.display = display;
+        this.nextState = GB_LCD_STATE_LY00_M2;
+        this.stateTicks = 0;
+        this.phaseInProgress = false;
+        this.firstRefresh = true;
     }
 
     private AddressSpace getAddressSpace(int address) {
-        if (videoRam0.accepts(address) && mode != Mode.PixelTransfer) {
+        if (videoRam0.accepts(address)/* && !vramLocked*/) {
             if (gbc && (r.get(VBK) & 1) == 1) {
                 return videoRam1;
             } else {
                 return videoRam0;
             }
-        } else if (oamRam.accepts(address) && !dma.isOamBlocked() && mode != Mode.OamSearch && mode != Mode.PixelTransfer) {
+        } else if (oamRam.accepts(address) && !dma.isOamBlocked() && !oamRamLocked) {
             return oamRam;
         } else if (lcdc.accepts(address)) {
             return lcdc;
@@ -156,77 +197,230 @@ public class Gpu implements AddressSpace {
         }
     }
 
-    public Mode tick() {
-        lastModeTicks++;
+    private int scxAdjust, spriteCycles, windowCycles;
 
-        if (!lcdEnabled) {
-            if (lcdEnabledDelay != -1) {
-                if (--lcdEnabledDelay == 0) {
-                    display.enableLcd();
-                    lcdEnabled = true;
-                }
-            }
-        }
-        if (!lcdEnabled) {
-            return null;
-        }
+    public int tick() {
+        boolean modeUpdated = false;
 
-        Mode oldMode = mode;
-        int line = r.get(LY);
-
+        ticksSinceInterrupt++;
         ticksInLine++;
-        if (phase.tick()) {
-            // switch line 153 to 0
-            if (ticksInLine == 4 && mode == Mode.VBlank && r.get(LY) == 153) {
-                r.put(LY, 0);
-                onLineChanged();
-            }
+
+        if (stateTicks-- > 0) {
+            phaseInProgress = phaseInProgress && phase.tick();
+            return state.mode;
         } else {
-            switch (oldMode) {
-                case OamSearch:
-                    mode = Mode.PixelTransfer;
+            if (state != null && state.mode == nextState.mode) {
+                phaseInProgress = phaseInProgress && phase.tick();
+            } else {
+                while (phaseInProgress = phaseInProgress && phase.tick());
+                modeUpdated = true;
+            }
+            state = nextState;
+            mode = state.mode;
+        }
+
+        switch (state) {
+            case GB_LCD_STATE_LYXX_M0:
+                oamRamLocked = false;
+                vramLocked = false;
+                nextState = GB_LCD_STATE_LYXX_M0_2;
+                stateTicks = 1;
+                break;
+
+            case GB_LCD_STATE_LYXX_M0_2:
+                checkInterruptForMode(0);
+                nextState = GB_LCD_STATE_LYXX_M0_INC;
+                stateTicks = 200 - 1 + 3 - scxAdjust - spriteCycles - windowCycles;
+                break;
+
+            case GB_LCD_STATE_LYXX_M0_INC:
+                r.inc(LY);
+
+                if (r.get(LY) < 144) {
+                    clearInterruptForMode(0);
+                }
+                checkInterruptForMode(2);
+                checkLyLycInterrupt();
+                if (r.get(LY) == 144) {
+                    nextState = GB_LCD_STATE_LY9X_M1;
+                    stateTicks = 4;
+                } else {
+                    nextState = GB_LCD_STATE_LYXX_M2;
+                    oamRamLocked = true;
+                    stateTicks = 4;
+                }
+                break;
+
+            case GB_LCD_STATE_LY00_M2:
+                oamRamLocked = true;
+                clearInterruptForMode(1);
+                checkInterruptForMode(2);
+                nextState = GB_LCD_STATE_LY00_M2_WND;
+                stateTicks = 8;
+                break;
+
+            case GB_LCD_STATE_LY00_M2_WND:
+                stateTicks = 80 - 8;
+                nextState = GB_LCD_STATE_LYXX_M3;
+                break;
+
+            case GB_LCD_STATE_LYXX_M2:
+                // following are already disabled in GB_LCD_STATE_LYXX_M0_INC
+                // clearInterruptForMode(0);
+                // oamRamLocked = true;
+                setLyLycIncidenceFlag();
+                nextState = GB_LCD_STATE_LYXX_M2_WND;
+                stateTicks = 8;
+                break;
+
+            case GB_LCD_STATE_LYXX_M2_WND:
+                stateTicks = 80 - 8;
+                nextState = GB_LCD_STATE_LYXX_M3;
+                break;
+
+            case GB_LCD_STATE_LYXX_M3:
+                clearInterruptForMode(2);
+                oamRamLocked = true;
+                vramLocked = true;
+                nextState = GB_LCD_STATE_LYXX_M0;
+                stateTicks = 4 - 3 + 168 + spriteCycles;
+                break;
+
+            case GB_LCD_STATE_LY9X_M1:
+                // already checked in GB_LCD_STATE_LYXX_M0_INC
+                // checkLyLycInterrupt();
+                clearInterruptForMode(2);
+                clearInterruptForMode(0);
+                if (r.get(LY) == 144) {
+                    triggerVBlank();
+                    checkInterruptForMode(1);
+                }
+                setLyLycIncidenceFlag();
+                nextState = GB_LCD_STATE_LY9X_M1_INC;
+                stateTicks = 452;
+                break;
+
+            case GB_LCD_STATE_LY9X_M1_INC:
+                r.inc(LY);
+                clearLyLycIncidenceFlag();
+                if (r.get(LY) == 153) {
+                    nextState = GB_LCD_STATE_LY00_M1;
+                    stateTicks = 4;
+                } else {
+                    nextState = GB_LCD_STATE_LY9X_M1;
+                    stateTicks = 4;
+                }
+                break;
+
+            case GB_LCD_STATE_LY00_M1:
+                setLyLycIncidenceFlag();
+                checkLyLycInterrupt();
+                r.put(LY, 0);
+                nextState = GB_LCD_STATE_LY00_M1_1;
+                stateTicks = 4;
+                break;
+
+            case GB_LCD_STATE_LY00_M1_1:
+                clearLyLycIncidenceFlag();
+                nextState = GB_LCD_STATE_LY00_M1_2;
+                stateTicks = 4;
+                break;
+
+            case GB_LCD_STATE_LY00_M1_2:
+                setLyLycIncidenceFlag();
+                checkLyLycInterrupt();
+                nextState = GB_LCD_STATE_LY00_M0;
+                stateTicks = 444;
+                break;
+
+            case GB_LCD_STATE_LY00_M0:
+                nextState = GB_LCD_STATE_LY00_M2;
+                stateTicks = 4;
+                break;
+        }
+
+        if (modeUpdated) {
+            switch (state.mode) {
+                case 0:
+                    LOG.trace("Phase updated to HBlank");
+                    phaseInProgress = false;
+                    phase = null;
+                    break;
+
+                case 1:
+                    LOG.trace("Phase updated to VBlank");
+                    phaseInProgress = false;
+                    phase = null;
+                    break;
+
+                case 2:
+                    LOG.trace("Phase updated to OAM search");
+                    phaseInProgress = true;
+                    phase = oamSearchPhase.start();
+                    break;
+
+                case 3:
+                    LOG.trace("Phase updated to Pixel transfer");
+                    phaseInProgress = true;
                     phase = pixelTransferPhase.start(oamSearchPhase.getSprites());
                     break;
-
-                case PixelTransfer:
-                    mode = Mode.HBlank;
-                    phase = hBlankPhase.start(ticksInLine);
-                    break;
-
-                case HBlank:
-                    ticksInLine = 0;
-                    if (r.preIncrement(LY) == 144) {
-                        mode = Mode.VBlank;
-                        phase = vBlankPhase.start();
-                        interruptManager.requestInterrupt(InterruptType.VBlank);
-                    } else {
-                        mode = Mode.OamSearch;
-                        phase = oamSearchPhase.start();
-                    }
-                    onLineChanged();
-                    break;
-
-                case VBlank:
-                    ticksInLine = 0;
-                    if (r.preIncrement(LY) == 1) {
-                        mode = Mode.OamSearch;
-                        r.put(LY, 0);
-                        phase = oamSearchPhase.start();
-                        updateIrqState();
-                    } else {
-                        phase = vBlankPhase.start();
-                    }
-                    onLineChanged();
-                    break;
             }
+            phaseInProgress = phaseInProgress && phase.tick();
         }
-        if (oldMode == mode) {
-            return null;
+        return state.mode;
+    }
+
+    private void triggerVBlank() {
+        interruptManager.requestInterrupt(InterruptManager.InterruptType.VBlank);
+    }
+
+    int ticksSinceInterrupt;
+
+    private void checkInterruptForMode(int mode) {
+        //System.out.println("ticks since last interrupt: " + ticksSinceInterrupt);
+        //System.out.println("new interrupt for mode " + mode);
+        ticksSinceInterrupt = 0;
+        modeInterrupt[mode] = true;
+        updateLcdInterrupt();
+    }
+
+    private void clearInterruptForMode(int mode) {
+        modeInterrupt[mode] = false;
+        updateLcdInterrupt();
+    }
+
+    private void setLyLycIncidenceFlag() {
+        lyLycIncident = r.get(LY) == r.get(LYC);
+    }
+
+    private void clearLyLycIncidenceFlag() {
+        lyLycIncident = false;
+    }
+
+    private void checkLyLycInterrupt() {
+        lyLycInterrupt = r.get(LY) == r.get(LYC);
+        updateLcdInterrupt();
+    }
+
+    private void updateLcdInterrupt() {
+        int stat = r.get(STAT);
+        boolean lcdIrq = false;
+        if (0 != (stat & (1 << 3)) && modeInterrupt[0]) {
+            lcdIrq = true;
+        }
+        if (0 != (stat & (1 << 4)) && modeInterrupt[1]) {
+            lcdIrq = true;
+        }
+        if (0 != (stat & (1 << 5)) && modeInterrupt[2]) {
+            lcdIrq = true;
+        }
+        if (0 != (stat & (1 << 6)) && lyLycInterrupt) {
+            lcdIrq = true;
+        }
+        if (lcdIrq) {
+            interruptManager.requestInterrupt(InterruptManager.InterruptType.LCDC);
         } else {
-            LOG.trace("Mode {} on line {} took {} ticks", oldMode, line, lastModeTicks);
-            lastModeTicks = 0;
-            onModeChanged();
-            return mode;
+            interruptManager.clearInterrupt(InterruptManager.InterruptType.LCDC);
         }
     }
 
@@ -234,68 +428,12 @@ public class Gpu implements AddressSpace {
         return ticksInLine;
     }
 
-    private void onModeChanged() {
-        int stat = r.get(STAT);
-        boolean i = false;
-        if ((stat & (1 << 3)) != 0) {
-            i = i || mode == Mode.HBlank;
-        }
-        if ((stat & (1 << 4)) != 0) {
-            i = i || mode == Mode.VBlank;
-        }
-        if ((stat & (1 << 5)) != 0) {
-            i = i || mode == Mode.OamSearch;
-        }
-        if ((stat & (1 << 5)) != 0) {
-            i = i || (mode == Mode.VBlank && r.get(LY) == 144);
-        }
-        if (i && !modeIrqRequested) {
-            modeIrqRequested = true;
-            updateIrqState();
-        } else if (!i && modeIrqRequested) {
-            modeIrqRequested = false;
-            updateIrqState();
-        }
-    }
-
-    private void onLineChanged() {
-        boolean coincidence = (r.get(STAT) & (1 << 6)) != 0 && r.get(LYC) == r.get(LY);
-        if (coincidence && !lineIrqRequested) {
-            lineIrqRequested = true;
-            updateIrqState();
-        } else if (!coincidence && lineIrqRequested) {
-            lineIrqRequested = false;
-            updateIrqState();
-        }
-    }
-
-    private void updateIrqState() {
-        if (modeIrqRequested || lineIrqRequested) {
-            interruptManager.requestInterrupt(InterruptType.LCDC);
-        } else {
-            interruptManager.clearInterrupt(InterruptType.LCDC);
-        }
-    }
-
     private int getStat() {
-        return r.get(STAT) | mode.ordinal() | (r.get(LYC) == r.get(LY) ? (1 << 2) : 0) | 0x80;
+        return r.get(STAT) | mode | (lyLycIncident ? (1 << 2) : 0) | 0x80;
     }
 
     private void setStat(int value) {
-        int oldState = r.get(STAT);
         r.put(STAT, value & 0b11111000); // last three bits are read-only
-        if (((oldState ^ value) & (1 << 3)) != 0 && mode == Mode.HBlank) {
-            onModeChanged();
-        }
-        if (((oldState ^ value) & (1 << 4)) != 0 && mode == Mode.VBlank) {
-            onModeChanged();
-        }
-        if (((oldState ^ value) & (1 << 5)) != 0 && mode == Mode.OamSearch) {
-            onModeChanged();
-        }
-        if (((oldState ^ value) & (1 << 6)) != 0 && r.get(LYC) == r.get(LY)) {
-            onLineChanged();
-        }
     }
 
     private void setLcdc(int value) {
@@ -308,17 +446,21 @@ public class Gpu implements AddressSpace {
     }
 
     private void disableLcd() {
-        r.put(LY, 0);
-        this.ticksInLine = 0;
-        this.phase = hBlankPhase.start(250);
-        this.mode = Mode.HBlank;
-        this.lcdEnabled = false;
-        this.lcdEnabledDelay = -1;
         display.disableLcd();
+        lcdEnabled = false;
     }
 
     private void enableLcd() {
-        lcdEnabledDelay = 244;
+        display.enableLcd();
+        lcdEnabled = true;
+
+        r.put(LY, 0);
+        this.ticksInLine = 0;
+
+        this.nextState = GB_LCD_STATE_LY00_M2;
+        this.stateTicks = 0;
+        this.phaseInProgress = false;
+        this.firstRefresh = true;
     }
 
     public boolean isLcdEnabled() {

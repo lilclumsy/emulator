@@ -1,7 +1,6 @@
 package eu.rekawek.coffeegb.memory;
 
 import eu.rekawek.coffeegb.AddressSpace;
-import eu.rekawek.coffeegb.gpu.Gpu;
 
 public class Hdma implements AddressSpace {
 
@@ -19,7 +18,7 @@ public class Hdma implements AddressSpace {
 
     private final Ram hdma1234 = new Ram(HDMA1, 4);
 
-    private Gpu.Mode gpuMode;
+    private int gpuMode;
 
     private boolean transferInProgress;
 
@@ -60,7 +59,7 @@ public class Hdma implements AddressSpace {
             transferInProgress = false;
             length = 0x7f;
         } else if (hblankTransfer) {
-            gpuMode = null; // wait until next HBlank
+            gpuMode = -1; // wait until next HBlank
         }
     }
 
@@ -88,7 +87,7 @@ public class Hdma implements AddressSpace {
         }
     }
 
-    public void onGpuUpdate(Gpu.Mode newGpuMode) {
+    public void onGpuUpdate(int newGpuMode) {
         this.gpuMode = newGpuMode;
     }
 
@@ -99,7 +98,7 @@ public class Hdma implements AddressSpace {
     public boolean isTransferInProgress() {
         if (!transferInProgress) {
             return false;
-        } else if (hblankTransfer && (gpuMode == Gpu.Mode.HBlank || !lcdEnabled)) {
+        } else if (hblankTransfer && (gpuMode == 0 || !lcdEnabled)) {
             return true;
         } else if (!hblankTransfer) {
             return true;

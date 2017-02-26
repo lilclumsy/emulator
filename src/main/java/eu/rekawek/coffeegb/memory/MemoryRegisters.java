@@ -68,7 +68,7 @@ public class MemoryRegisters implements AddressSpace {
         return new MemoryRegisters(this);
     }
 
-    public int preIncrement(Register reg) {
+    public int inc(Register reg) {
         if (registers.containsKey(reg.getAddress())) {
             int value = values.get(reg.getAddress()) + 1;
             values.put(reg.getAddress(), value);

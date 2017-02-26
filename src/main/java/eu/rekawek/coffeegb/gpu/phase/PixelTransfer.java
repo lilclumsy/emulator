@@ -81,6 +81,10 @@ public class PixelTransfer implements GpuPhase {
 
     @Override
     public boolean tick() {
+        if (x >= 160) {
+            throw new IllegalStateException();
+        }
+
         LOG.trace("Tick: {}, FIFO size: {}, x: {}", tick++, fifo.getLength(), x);
         fetcher.tick();
         if (lcdc.isBgAndWindowDisplay() || gbc) {

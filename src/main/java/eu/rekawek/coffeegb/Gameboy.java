@@ -113,17 +113,19 @@ public class Gameboy implements Runnable {
         boolean requestedScreenRefresh = false;
         boolean lcdDisabled = false;
         doStop = false;
+        int oldMode = -1;
         while (!doStop) {
-            Gpu.Mode newMode = tick();
-            if (newMode != null) {
-                hdma.onGpuUpdate(newMode);
+            int mode = tick();
+            if (mode != oldMode) {
+                hdma.onGpuUpdate(mode);
             }
+            oldMode = mode;
 
             if (!lcdDisabled && !gpu.isLcdEnabled()) {
                 lcdDisabled = true;
                 display.requestRefresh();
                 hdma.onLcdSwitch(false);
-            } else if (newMode == Gpu.Mode.VBlank) {
+            } else if (mode == 1) {
                 requestedScreenRefresh = true;
                 display.requestRefresh();
             }
@@ -132,7 +134,7 @@ public class Gameboy implements Runnable {
                 lcdDisabled = false;
                 display.waitForRefresh();
                 hdma.onLcdSwitch(true);
-            } else if (requestedScreenRefresh && newMode == Gpu.Mode.OamSearch) {
+            } else if (requestedScreenRefresh && mode == 2) {
                 requestedScreenRefresh = false;
                 display.waitForRefresh();
             }
@@ -143,7 +145,7 @@ public class Gameboy implements Runnable {
         doStop = true;
     }
 
-    public Gpu.Mode tick() {
+    public int tick() {
         timer.tick();
         if (hdma.isTransferInProgress()) {
             hdma.tick();
