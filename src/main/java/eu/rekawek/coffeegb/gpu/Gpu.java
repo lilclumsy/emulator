@@ -11,10 +11,14 @@ import eu.rekawek.coffeegb.gpu.phase.VBlankPhase;
 import eu.rekawek.coffeegb.memory.Dma;
 import eu.rekawek.coffeegb.memory.MemoryRegisters;
 import eu.rekawek.coffeegb.memory.Ram;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static eu.rekawek.coffeegb.gpu.GpuRegister.*;
 
 public class Gpu implements AddressSpace {
+
+    private static final Logger LOG = LoggerFactory.getLogger(Gpu.class);
 
     public enum Mode {
         HBlank, VBlank, OamSearch, PixelTransfer
@@ -63,6 +67,8 @@ public class Gpu implements AddressSpace {
     private boolean modeIrqRequested;
 
     private boolean lineIrqRequested;
+
+    private int lastModeTicks;
 
     public Gpu(Display display, InterruptManager interruptManager, Dma dma, Ram oamRam, boolean gbc) {
         this.r = new MemoryRegisters(GpuRegister.values());
@@ -151,6 +157,8 @@ public class Gpu implements AddressSpace {
     }
 
     public Mode tick() {
+        lastModeTicks++;
+
         if (!lcdEnabled) {
             if (lcdEnabledDelay != -1) {
                 if (--lcdEnabledDelay == 0) {
@@ -164,6 +172,8 @@ public class Gpu implements AddressSpace {
         }
 
         Mode oldMode = mode;
+        int line = r.get(LY);
+
         ticksInLine++;
         if (phase.tick()) {
             // switch line 153 to 0
@@ -213,6 +223,8 @@ public class Gpu implements AddressSpace {
         if (oldMode == mode) {
             return null;
         } else {
+            LOG.trace("Mode {} on line {} took {} ticks", oldMode, line, lastModeTicks);
+            lastModeTicks = 0;
             onModeChanged();
             return mode;
         }

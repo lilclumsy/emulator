@@ -177,7 +177,6 @@ public class Fetcher {
             case READ_SPRITE_DATA_2:
                 tileData2 = getTileData(tileId, spriteTileLine, 1, 0x8000, false, spriteAttributes, lcdc.getSpriteHeight());
                 state = State.PUSH_SPRITE;
-                break;
 
             case PUSH_SPRITE:
                 fifo.setOverlay(zip(tileData1, tileData2, spriteAttributes.isXflip()), spriteOffset, spriteAttributes, spriteOamIndex);

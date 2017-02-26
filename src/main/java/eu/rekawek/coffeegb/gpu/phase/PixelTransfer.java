@@ -5,11 +5,17 @@ import eu.rekawek.coffeegb.gpu.ColorPalette;
 import eu.rekawek.coffeegb.gpu.ColorPixelFifo;
 import eu.rekawek.coffeegb.gpu.Display;
 import eu.rekawek.coffeegb.gpu.Fetcher;
+import eu.rekawek.coffeegb.gpu.Gpu;
 import eu.rekawek.coffeegb.gpu.Lcdc;
 import eu.rekawek.coffeegb.gpu.DmgPixelFifo;
 import eu.rekawek.coffeegb.gpu.PixelFifo;
 import eu.rekawek.coffeegb.gpu.phase.OamSearch.SpritePosition;
 import eu.rekawek.coffeegb.memory.MemoryRegisters;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.Arrays;
+import java.util.stream.IntStream;
 
 import static eu.rekawek.coffeegb.gpu.GpuRegister.LY;
 import static eu.rekawek.coffeegb.gpu.GpuRegister.SCX;
@@ -18,6 +24,8 @@ import static eu.rekawek.coffeegb.gpu.GpuRegister.WX;
 import static eu.rekawek.coffeegb.gpu.GpuRegister.WY;
 
 public class PixelTransfer implements GpuPhase {
+
+    private static final Logger LOG = LoggerFactory.getLogger(PixelTransfer.class);
 
     private final PixelFifo fifo;
 
@@ -53,6 +61,8 @@ public class PixelTransfer implements GpuPhase {
 
     }
 
+    private int tick;
+
     public PixelTransfer start(SpritePosition[] sprites) {
         this.sprites = sprites;
         droppedPixels = 0;
@@ -65,11 +75,13 @@ public class PixelTransfer implements GpuPhase {
         } else {
             fetcher.fetchingDisabled();
         }
+        this.tick = 0;
         return this;
     }
 
     @Override
     public boolean tick() {
+        LOG.trace("Tick: {}, FIFO size: {}, x: {}", tick++, fifo.getLength(), x);
         fetcher.tick();
         if (lcdc.isBgAndWindowDisplay() || gbc) {
             if (fifo.getLength() <= 8) {
