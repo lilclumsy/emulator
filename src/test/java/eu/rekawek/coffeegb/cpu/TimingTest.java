@@ -5,10 +5,14 @@ import eu.rekawek.coffeegb.cpu.opcode.Opcode;
 import eu.rekawek.coffeegb.gpu.Display;
 import eu.rekawek.coffeegb.memory.Ram;
 import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.junit.Assert.assertEquals;
 
 public class TimingTest {
+
+    private static final Logger LOG = LoggerFactory.getLogger(TimingTest.class);
 
     private static final int OFFSET = 0x100;
 
@@ -19,6 +23,16 @@ public class TimingTest {
     public TimingTest() {
         memory = new Ram(0x00, 0x10000);
         cpu = new Cpu(memory, new InterruptManager(false), null, Display.NULL_DISPLAY, new SpeedMode());
+    }
+
+    @Test
+    public void testBit7() {
+        cpu.clearState();
+        cpu.getRegisters().setHL(0x9ffe);
+        cpu.getRegisters().getFlags().setZ(true);
+        LOG.info("Registers: {}", cpu.getRegisters());
+        assertTiming(8, 0xcb, 0x7c);
+        assertEquals(false, cpu.getRegisters().getFlags().isZ());
     }
 
     @Test
